@@ -1,7 +1,7 @@
-# Agent Memory Protocol
+# OpenClaw Memory Architecture
 
 <p align="center">
-  <strong>A structured memory management skill for OpenClaw agents — three-layer density, session reflection, and flush protocol</strong>
+  <strong>A multi-agent memory system for OpenClaw — structured files, semantic search, and lossless context compression</strong>
 </p>
 
 <p align="center">
@@ -9,122 +9,190 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/OpenClaw-compatible-orange?style=for-the-badge" alt="OpenClaw">
   <img src="https://img.shields.io/badge/clawhub-agent--memory--protocol-brightgreen?style=for-the-badge" alt="ClawHub">
-  <img src="https://img.shields.io/badge/OpenClaw-skill-orange?style=for-the-badge" alt="Skill">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
-An [OpenClaw](https://github.com/openclaw/openclaw) skill that gives your agents a consistent, structured memory system. Defines where and how to write information, how to retrieve it efficiently, and when to flush to avoid context loss — all in one protocol that all agents in a multi-agent stack can follow.
+This repository documents a complete memory architecture for [OpenClaw](https://github.com/openclaw/openclaw) multi-agent systems. It covers three layers: the structured file layout agents write to, the semantic search engine that retrieves from it, and the lossless compression system that preserves conversation history beyond context limits.
 
-## Why
+---
 
-As agents handle more tasks and sessions accumulate, memory becomes fragmented. Without a protocol:
-- The same fact is written in multiple places and drifts out of sync
-- Important decisions get buried in session logs and lost after compaction
+## The Problem
+
+As agents handle more tasks across longer sessions, memory breaks down in predictable ways:
+
+- The same fact lives in multiple files and drifts out of sync
+- Important decisions get buried in session logs and lost after context compaction
 - Agents waste tokens reading everything instead of navigating to the right file
+- Old conversations become inaccessible once compressed away
 
-This skill solves all three.
+This architecture addresses all four.
 
-## What's Inside
+---
 
-### Three-Layer Density Structure
-
-| Layer | File | Purpose |
-|-------|------|---------|
-| **L0** | `MEMORY.md` | Minimal index — 1-3 sentences per category + path pointers. Always read first. |
-| **L1** | `memory/INDEX.md` | Category overview navigation (~500-1000 words). |
-| **L2** | `memory/user/` `memory/agent/` | Full details, read on demand. |
-
-Retrieval cost scales with need: L0 is always fast; only drill to L2 when you need the detail.
-
-### Six-Category Write Spec
+## System Overview
 
 ```
-New information → classify
-  ├── User identity/background → user/profile.md
-  ├── Preferences/habits → user/preferences/[topic].md
-  ├── Projects/tools/people → user/entities/[type].md
-  ├── Key decisions/events → user/events/YYYY-MM-[name].md  (append-only)
-  ├── New task type handled → agent/cases/[name].md          (append-only)
-  └── Reusable pattern found → agent/patterns/[name].md
+┌───────────────────────────────────────────────────────────┐
+│                      Agent (LLM)                          │
+│                                                           │
+│  memory_search ──► qmd (vector + BM25 hybrid search)      │
+│  memory_get    ──► direct file read (L0 → L2 navigation)  │
+│  lcm_grep      ──► LosslessClaw SQLite DAG                │
+│  lcm_expand    ──► recover detail from compressed history  │
+└───────────────────────────────────────────────────────────┘
+         │                              │
+    ┌────▼──────────┐          ┌────────▼──────────┐
+    │  qmd index    │          │  lcm.db            │
+    │  (SQLite +    │          │  (SQLite DAG        │
+    │   vectors)    │          │   summaries)        │
+    └────┬──────────┘          └────────────────────┘
+         │
+    ┌────▼───────────────────────────┐
+    │  Markdown files on disk        │
+    │  memory/  ·  blackboard/       │
+    └────────────────────────────────┘
 ```
 
-### Session Reflection
+**Three components, one pipeline:**
 
-At session end, extract one pattern if the session contained corrections, failures, or better-approach discoveries. Patterns promoted to instincts after ≥3 occurrences.
+| Component | Role | Tools |
+|-----------|------|-------|
+| **Memory files** | Structured, curated facts — the source of truth | `read`, `write`, `edit` |
+| **qmd** | Semantic + keyword search over memory files | `memory_search`, `memory_get` |
+| **LosslessClaw** | Lossless compression of past conversations | `lcm_grep`, `lcm_expand`, `lcm_expand_query` |
 
-### Flush Checklist
+---
 
-Six items to scan before session end or compaction — catches what's easy to forget:
-preferences, project progress, decisions, entity updates, patterns, corrections.
+## Memory File Structure
 
-### Context Pressure Protocol
+Agents write to a three-layer hierarchy:
 
-Thresholds at 50 / 70 / 85% context usage, each with escalating flush urgency.
+```
+memory/
+├── MEMORY.md               ← L0: minimal index, path pointers only (~30 lines)
+├── INDEX.md                ← L1: category overview and navigation
+├── user/
+│   ├── profile.md          # Identity, background, physical data
+│   ├── preferences/        # Learning, lifestyle, tech, communication prefs
+│   ├── entities/           # Tools, people, services
+│   └── events/             # Key decisions and milestones (append-only)
+└── agent/
+    ├── cases/              # First-time task type records (append-only)
+    └── patterns/           # Reusable handling patterns
+```
 
-### Sub-Agent Write Rules
+**The L0 → L1 → L2 retrieval sequence keeps token cost proportional to need:**
 
-Clear rules for which agent writes what, and how the orchestrator syncs L0/L1 indexes.
+```
+Agent reads MEMORY.md (L0)  →  locates category path
+  → memory_get the L2 file  →  reads only what's needed
+  → memory_search as fallback when location is unknown
+```
 
-## Installation
+**Six write categories — every piece of information goes to exactly one place:**
+
+| Category | File | Rules |
+|----------|------|-------|
+| User identity / background | `user/profile.md` | Appendable |
+| Preferences / habits | `user/preferences/[topic].md` | Appendable |
+| Projects / tools / people | `user/entities/[type].md` | Updatable |
+| Key decisions / events | `user/events/YYYY-MM-[name].md` | Append-only, never modify |
+| New task type handled | `agent/cases/[name].md` | Append-only, never modify |
+| Reusable patterns | `agent/patterns/[name].md` | Appendable |
+
+---
+
+## Information Lifecycle
+
+```
+Conversation happens
+       │
+       ├──► Agent writes structured facts ──► memory/ files
+       │                                           │
+       │                                     qmd re-indexes
+       │                                    (every 5 min or on change)
+       │
+       └──► Context fills up
+                  │
+            LosslessClaw compresses old messages into DAG node
+                  │
+             stored in lcm.db (never deleted)
+```
+
+- **qmd** answers: *"What do we know about X?"* — searches curated memory files
+- **LosslessClaw** answers: *"What did we discuss about X?"* — searches compressed conversation history
+
+---
+
+## Multi-Agent Considerations
+
+In a multi-agent stack, all agents share the same memory files but have distinct session histories in lcm.db.
+
+**Write rules for sub-agents:**
+- Write structured facts directly to the appropriate `memory/` file per the six-category spec
+- Note `_Written by: [agent-id] YYYY-MM-DD_` at the end of each write
+- Notify the orchestrating agent; it syncs the L0/L1 indexes
+
+**Trust model:**
+- Memory files are shared truth — any agent can read, authorized agents can write
+- LosslessClaw histories are per-session — use `lcm_grep` with session filters when needed
+
+---
+
+## Components
+
+### Agent Memory Protocol (installable skill)
+
+The write/read protocol all agents follow. Defines the six categories, dedup strategy, cascade update rules, session reflection, and flush checklist.
 
 ```bash
 clawhub install agent-memory-protocol
 ```
 
-Or clone directly:
+→ [skills/memory-manager/SKILL.md](skills/memory-manager/SKILL.md)
 
-```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/OttoPrua/openclaw-memory-manager.git memory-manager
-```
+### qmd
 
-## Usage
+Local semantic search engine. Hybrid BM25 + vector index over your Markdown files. Powers `memory_search`.
 
-The skill activates automatically when any memory-related operation is triggered. Load it manually when needed:
+→ [docs/qmd.md](docs/qmd.md) — setup and configuration guide
 
-```
-Read the memory-manager skill and follow its protocol for this write.
-```
+### LosslessClaw
 
-Trigger words: `remember this`, `update memory`, `memory write`, `flush memory`
+DAG-based context compression. Replaces lossy sliding-window truncation. All past conversations remain recoverable via `lcm_grep` / `lcm_expand`.
 
-## Directory Layout (after setup)
+→ [docs/losslessclaw.md](docs/losslessclaw.md) — setup and configuration guide
 
-```
-memory/
-├── INDEX.md                    ← L1 navigation
-├── user/
-│   ├── profile.md
-│   ├── preferences/
-│   │   ├── learning.md
-│   │   ├── lifestyle.md
-│   │   ├── tech.md
-│   │   └── communication.md
-│   ├── entities/
-│   │   ├── tools.md
-│   │   └── people.md
-│   └── events/
-└── agent/
-    ├── cases/
-    └── patterns/
-```
+### Full Architecture Reference
 
-## External Tools & Integration
+→ [docs/architecture.md](docs/architecture.md)
 
-The skill protocol defines the write/read rules. The actual retrieval infrastructure uses two external tools:
+---
 
-- **[qmd](https://github.com/tobilen/qmd)** — local semantic search over `memory/` and `blackboard/` Markdown files (powers `memory_search`)
-- **[LosslessClaw](https://github.com/martian-engineering/lossless-claw)** — DAG-based context compression; stores compressed session summaries recoverable via `lcm_grep` / `lcm_expand`
+## Quick Reference
 
-Full setup guide → **[MEMORY-STACK.md](MEMORY-STACK.md)**
+| I want to... | Tool |
+|-------------|------|
+| Find a fact in memory | `memory_search("query")` |
+| Read a specific file section | `memory_get(path, from, lines)` |
+| Search past conversations | `lcm_grep("pattern")` |
+| Recover a past decision | `lcm_expand_query("what was decided about X")` |
+| Force re-index memory | `qmd update` (CLI) |
+| Check qmd health | `qmd status` (CLI) |
+| Inspect a summary node | `lcm_describe("sum_xxx")` |
+
+---
 
 ## Related
 
 - [OpenClaw](https://github.com/openclaw/openclaw) — the core gateway
-- [OpenClaw Docs](https://docs.openclaw.ai) — full documentation
-- [ClawHub: agent-memory-protocol](https://clawhub.ai/OttoPrua/agent-memory-protocol) — install from ClawHub
-- [Discord](https://discord.gg/clawd) — community
+- [OpenClaw Docs](https://docs.openclaw.ai)
+- [ClawHub: agent-memory-protocol](https://clawhub.ai/OttoPrua/agent-memory-protocol)
+- [qmd](https://github.com/tobilen/qmd)
+- [LosslessClaw](https://github.com/martian-engineering/lossless-claw)
+- [Discord](https://discord.gg/clawd)
 
 ## License
 

@@ -1,7 +1,7 @@
-# Agent Memory Protocol
+# OpenClaw 记忆架构
 
 <p align="center">
-  <strong>OpenClaw agent 结构化记忆管理 skill — 三层密度结构、会话反思与冲写协议</strong>
+  <strong>OpenClaw 多 agent 记忆系统 — 结构化文件、语义搜索与无损上下文压缩</strong>
 </p>
 
 <p align="center">
@@ -9,121 +9,190 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/OpenClaw-compatible-orange?style=for-the-badge" alt="OpenClaw">
   <img src="https://img.shields.io/badge/clawhub-agent--memory--protocol-brightgreen?style=for-the-badge" alt="ClawHub">
-  <img src="https://img.shields.io/badge/OpenClaw-skill-orange?style=for-the-badge" alt="Skill">
   <img src="https://img.shields.io/badge/许可证-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
-[OpenClaw](https://github.com/openclaw/openclaw) 的记忆管理 skill，为 agent 建立一套一致、结构化的记忆体系。定义信息该写到哪里、如何高效检索、何时冲写以避免上下文丢失 — 所有 agent 都可以遵循同一套协议。
+本仓库记录了一套完整的 [OpenClaw](https://github.com/openclaw/openclaw) 多 agent 记忆架构。涵盖三个层次：agent 写入的结构化文件体系、从中检索的语义搜索引擎，以及在上下文限制之外保存对话历史的无损压缩系统。
 
-## 为什么需要它
+---
 
-随着 agent 处理的任务增多、session 不断积累，记忆会变得碎片化。没有协议时：
-- 同一事实被写在多处，逐渐不同步
-- 重要决策被埋在 session 日志里，压缩后丢失
+## 问题所在
+
+随着 agent 跨越更长的 session 处理更多任务，记忆会以可预期的方式崩溃：
+
+- 同一事实存在多个文件中并逐渐不同步
+- 重要决策被埋在 session 日志里，上下文压缩后丢失
 - Agent 浪费 token 通读所有内容，而不是直接定位到正确的文件
+- 旧对话一旦被压缩就变得不可访问
 
-这个 skill 解决上述三个问题。
+这套架构解决上述全部四个问题。
 
-## 包含内容
+---
 
-### 三层密度结构
+## 系统概览
 
-| 层级 | 文件 | 作用 |
+```
+┌───────────────────────────────────────────────────────────┐
+│                      Agent（LLM）                          │
+│                                                           │
+│  memory_search ──► qmd（向量 + BM25 混合检索）              │
+│  memory_get    ──► 直接读取文件（L0 → L2 导航）             │
+│  lcm_grep      ──► LosslessClaw SQLite DAG                │
+│  lcm_expand    ──► 从压缩历史中恢复细节                     │
+└───────────────────────────────────────────────────────────┘
+         │                              │
+    ┌────▼──────────┐          ┌────────▼──────────┐
+    │  qmd 索引     │          │  lcm.db            │
+    │  （SQLite +   │          │  （SQLite DAG       │
+    │   向量）      │          │   压缩摘要）         │
+    └────┬──────────┘          └────────────────────┘
+         │
+    ┌────▼───────────────────────────┐
+    │  磁盘上的 Markdown 文件         │
+    │  memory/  ·  blackboard/       │
+    └────────────────────────────────┘
+```
+
+**三个组件，一条流水线：**
+
+| 组件 | 职责 | 工具 |
 |------|------|------|
-| **L0** | `MEMORY.md` | 极简索引 — 每类 1-3 句 + 路径指针。永远先读这里。 |
-| **L1** | `memory/INDEX.md` | 各分类概览导航（约 500-1000 字）。 |
-| **L2** | `memory/user/` `memory/agent/` | 完整详情，按需读取。 |
+| **Memory 文件** | 结构化精选事实 — 真相来源 | `read`, `write`, `edit` |
+| **qmd** | 对 memory 文件做语义+关键词搜索 | `memory_search`, `memory_get` |
+| **LosslessClaw** | 无损压缩历史对话 | `lcm_grep`, `lcm_expand`, `lcm_expand_query` |
 
-检索成本按需扩展：L0 始终快速；只在需要细节时才深入 L2。
+---
 
-### 六分类写入规范
+## Memory 文件结构
+
+Agent 写入三层层级结构：
 
 ```
-新信息 → 分类判断
-  ├── 用户身份/背景 → user/profile.md
-  ├── 偏好/习惯 → user/preferences/[主题].md
-  ├── 项目/工具/人物 → user/entities/[类型].md
-  ├── 重要决策/事件 → user/events/YYYY-MM-[名称].md  （只增不改）
-  ├── 首次处理的新类型任务 → agent/cases/[名称].md    （只增不改）
-  └── 发现可复用规律 → agent/patterns/[名称].md
+memory/
+├── MEMORY.md               ← L0：极简索引，只有路径指针（~30 行）
+├── INDEX.md                ← L1：分类概览与导航
+├── user/
+│   ├── profile.md          # 身份、背景、身体数据
+│   ├── preferences/        # 学习、生活、技术、沟通偏好
+│   ├── entities/           # 工具、人物、服务
+│   └── events/             # 重要决策与里程碑（只增不改）
+└── agent/
+    ├── cases/              # 首次处理的新类型任务（只增不改）
+    └── patterns/           # 可复用处理规律
 ```
 
-### 会话反思
+**L0 → L1 → L2 的检索顺序使 token 消耗与需求成正比：**
 
-session 结束时，如果包含纠正、失败或发现更优方案，提炼一条 pattern。同一条目被触发 ≥3 次后升级为 instinct。
+```
+Agent 读 MEMORY.md（L0） → 定位分类路径
+  → memory_get 读 L2 文件 → 只读所需内容
+  → 位置不明时用 memory_search 作为回退
+```
 
-### Flush Checklist
+**六分类写入 — 每条信息只存在一个地方：**
 
-session 结束或压缩前扫描的 6 项检查 — 防止容易遗漏的内容丢失：偏好、项目进度、决策、实体更新、规律、纠正。
+| 分类 | 文件 | 规则 |
+|------|------|------|
+| 用户身份/背景 | `user/profile.md` | 可追加 |
+| 偏好/习惯 | `user/preferences/[主题].md` | 可追加 |
+| 项目/工具/人物 | `user/entities/[类型].md` | 可更新 |
+| 重要决策/事件 | `user/events/YYYY-MM-[名称].md` | 只增不改 |
+| 首次处理的新类型任务 | `agent/cases/[名称].md` | 只增不改 |
+| 可复用规律 | `agent/patterns/[名称].md` | 可追加 |
 
-### 上下文压力协议
+---
 
-在 50 / 70 / 85% 上下文用量设置阈值，对应逐级升高的冲写紧迫度。
+## 信息生命周期
 
-### 子代理写入规则
+```
+对话发生
+    │
+    ├──► Agent 写入结构化事实 ──► memory/ 文件
+    │                                   │
+    │                             qmd 重新索引
+    │                            （每 5 分钟或变更时）
+    │
+    └──► 上下文满
+              │
+        LosslessClaw 将旧消息压缩为 DAG 节点
+              │
+         存入 lcm.db（永不删除）
+```
 
-明确哪个 agent 写什么内容，以及编排 agent 如何同步 L0/L1 索引。
+- **qmd** 回答：*「我们对 X 了解什么？」* — 搜索精选 memory 文件
+- **LosslessClaw** 回答：*「我们讨论过 X 的什么内容？」* — 搜索压缩的对话历史
 
-## 安装
+---
+
+## 多 Agent 注意事项
+
+在多 agent 体系中，所有 agent 共享同一套 memory 文件，但在 lcm.db 中各有独立的 session 历史。
+
+**子 agent 写入规则：**
+- 按六分类规范直接写入对应 `memory/` 文件
+- 每次写入末尾注明 `_写入者：[agent-id] YYYY-MM-DD_`
+- 通知编排 agent，由编排 agent 同步 L0/L1 索引
+
+**信任模型：**
+- Memory 文件是共享真相 — 任何 agent 可读，授权 agent 可写
+- LosslessClaw 历史按 session 隔离 — 需要时用 `lcm_grep` 加 session 过滤
+
+---
+
+## 组件
+
+### Agent Memory Protocol（可安装 skill）
+
+所有 agent 遵循的写入/读取协议。定义六分类、去重策略、级联更新规则、会话反思和冲写检查清单。
 
 ```bash
 clawhub install agent-memory-protocol
 ```
 
-或直接克隆：
+→ [skills/memory-manager/SKILL.md](skills/memory-manager/SKILL.md)
 
-```bash
-cd ~/.openclaw/workspace/skills
-git clone https://github.com/OttoPrua/openclaw-memory-manager.git memory-manager
-```
+### qmd
 
-## 使用
+本地语义搜索引擎。对 Markdown 文件建立 BM25 + 向量混合索引，驱动 `memory_search`。
 
-Skill 在触发记忆相关操作时自动激活。也可手动加载：
+→ [docs/qmd.zh-CN.md](docs/qmd.zh-CN.md) — 配置指南
 
-```
-读取 memory-manager skill 并按协议执行本次写入。
-```
+### LosslessClaw
 
-触发词：`记住这个`、`更新记忆`、`memory write`、`flush memory`
+DAG 分层上下文压缩，替代有损滑动窗口截断。所有历史对话均可通过 `lcm_grep` / `lcm_expand` 恢复。
 
-## 目录结构（初始化后）
+→ [docs/losslessclaw.zh-CN.md](docs/losslessclaw.zh-CN.md) — 配置指南
 
-```
-memory/
-├── INDEX.md                    ← L1 导航
-├── user/
-│   ├── profile.md
-│   ├── preferences/
-│   │   ├── learning.md
-│   │   ├── lifestyle.md
-│   │   ├── tech.md
-│   │   └── communication.md
-│   ├── entities/
-│   │   ├── tools.md
-│   │   └── people.md
-│   └── events/
-└── agent/
-    ├── cases/
-    └── patterns/
-```
+### 完整架构参考
 
-## 外部工具与集成
+→ [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md)
 
-Skill 协议定义写入/读取规则。实际检索基础设施使用两个外部工具：
+---
 
-- **[qmd](https://github.com/tobilen/qmd)** — 对 `memory/` 和 `blackboard/` Markdown 文件做本地语义搜索（驱动 `memory_search`）
-- **[LosslessClaw](https://github.com/martian-engineering/lossless-claw)** — DAG 分层上下文压缩；将历史 session 压缩为可恢复的摘要，通过 `lcm_grep` / `lcm_expand` 访问
+## 快速参考
 
-完整配置指南 → **[MEMORY-STACK.zh-CN.md](MEMORY-STACK.zh-CN.md)**
+| 我想... | 工具 |
+|---------|------|
+| 在记忆中查找事实 | `memory_search("query")` |
+| 读取特定文件段落 | `memory_get(path, from, lines)` |
+| 搜索历史对话 | `lcm_grep("pattern")` |
+| 恢复过去的决策 | `lcm_expand_query("X 当时决定了什么")` |
+| 强制重建 qmd 索引 | `qmd update`（CLI） |
+| 检查 qmd 健康状态 | `qmd status`（CLI） |
+| 查看摘要节点 | `lcm_describe("sum_xxx")` |
+
+---
 
 ## 相关链接
 
 - [OpenClaw](https://github.com/openclaw/openclaw) — 核心 Gateway
-- [OpenClaw 文档](https://docs.openclaw.ai) — 完整文档
-- [ClawHub: agent-memory-protocol](https://clawhub.ai/OttoPrua/agent-memory-protocol) — 从 ClawHub 安装
-- [Discord](https://discord.gg/clawd) — 社区
+- [OpenClaw 文档](https://docs.openclaw.ai)
+- [ClawHub: agent-memory-protocol](https://clawhub.ai/OttoPrua/agent-memory-protocol)
+- [qmd](https://github.com/tobilen/qmd)
+- [LosslessClaw](https://github.com/martian-engineering/lossless-claw)
+- [Discord](https://discord.gg/clawd)
 
 ## 许可证
 
