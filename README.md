@@ -110,6 +110,15 @@ memory/
     └── patterns/
 ```
 
+## External Tools & Integration
+
+The skill protocol defines the write/read rules. The actual retrieval infrastructure uses two external tools:
+
+- **[qmd](https://github.com/tobilen/qmd)** — local semantic search over `memory/` and `blackboard/` Markdown files (powers `memory_search`)
+- **[LosslessClaw](https://github.com/martian-engineering/lossless-claw)** — DAG-based context compression; stores compressed session summaries recoverable via `lcm_grep` / `lcm_expand`
+
+Full setup guide → **[MEMORY-STACK.md](MEMORY-STACK.md)**
+
 ## Related
 
 - [OpenClaw](https://github.com/openclaw/openclaw) — the core gateway

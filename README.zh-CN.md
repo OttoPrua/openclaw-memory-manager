@@ -109,6 +109,15 @@ memory/
     └── patterns/
 ```
 
+## 外部工具与集成
+
+Skill 协议定义写入/读取规则。实际检索基础设施使用两个外部工具：
+
+- **[qmd](https://github.com/tobilen/qmd)** — 对 `memory/` 和 `blackboard/` Markdown 文件做本地语义搜索（驱动 `memory_search`）
+- **[LosslessClaw](https://github.com/martian-engineering/lossless-claw)** — DAG 分层上下文压缩；将历史 session 压缩为可恢复的摘要，通过 `lcm_grep` / `lcm_expand` 访问
+
+完整配置指南 → **[MEMORY-STACK.zh-CN.md](MEMORY-STACK.zh-CN.md)**
+
 ## 相关链接
 
 - [OpenClaw](https://github.com/openclaw/openclaw) — 核心 Gateway
