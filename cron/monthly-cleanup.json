@@ -1,0 +1,18 @@
+{
+  "name": "Monthly Session Cleanup",
+  "description": "Archive session log files older than 7 days from memory/ root to memory/archive/YYYY-MM/.",
+  "schedule": {
+    "kind": "cron",
+    "expr": "0 3 1 * *",
+    "tz": "Asia/Shanghai"
+  },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Archive memory/ root session log files (YYYY-MM-DD.md format) older than 7 days to memory/archive/YYYY-MM/. Create the archive folder if it does not exist."
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "last"
+  }
+}

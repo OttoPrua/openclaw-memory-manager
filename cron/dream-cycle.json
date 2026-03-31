@@ -1,0 +1,18 @@
+{
+  "name": "Dream Cycle (Memory Consolidation)",
+  "description": "Weekly memory consolidation: summarize session logs, archive originals, deduplicate patterns.",
+  "schedule": {
+    "kind": "cron",
+    "expr": "0 8 * * 0",
+    "tz": "Asia/Shanghai"
+  },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Run memory consolidation: scan memory/ root for dated session log files, refine each into a ≤30-line structured summary, move originals to memory/archive/YYYY-MM/, deduplicate patterns/."
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "last"
+  }
+}

@@ -160,45 +160,35 @@ Conversation happens
 
 Memory stays healthy through a set of scheduled background jobs. These run as isolated OpenClaw cron sessions and do not pollute the main chat context.
 
+Reference configurations are in [`cron/`](cron/) — each `.json` can be used directly with the CLI or as a tool call template.
+
 ### Memory-related cron jobs
 
 #### Dream Cycle — Weekly Memory Consolidation
-`cron: 0 8 * * 0` (Sunday 08:00 Asia/Shanghai)
+`cron: 0 8 * * 0` (weekly, adjust timezone as needed)
 
 Scans the `memory/` root for dated session log files, refines each into a ≤30-line structured summary, moves originals to `memory/archive/YYYY-MM/`, and deduplicates `patterns/`. Keeps the working memory directory lean.
 
-```json5
-{
-  "name": "Dream Cycle (Memory Consolidation)",
-  "schedule": { "kind": "cron", "expr": "0 8 * * 0", "tz": "Asia/Shanghai" },
-  "sessionTarget": "isolated",
-  "payload": {
-    "kind": "agentTurn",
-    "message": "Run memory consolidation: scan memory/ root for dated session logs, summarize each to ≤30 lines, archive originals to memory/archive/YYYY-MM/, deduplicate patterns/."
-  },
-  "delivery": { "mode": "announce", "channel": "last" }
-}
-```
+→ [`cron/dream-cycle.json`](cron/dream-cycle.json)
 
 #### Daily Progress Sync
-`cron: 0 4 * * *` (04:00 Asia/Shanghai)
+`cron: 0 4 * * *` (daily, adjust time and timezone as needed)
 
 Reads `blackboard/REGISTRY.md` and yesterday's calendar events to sync project progress to Blackboard project cards. Ensures project state stays current even after quiet days.
 
+→ [`cron/daily-progress-sync.json`](cron/daily-progress-sync.json)
+
 #### Monthly Session Cleanup
-`cron: 0 3 1 * *` (1st of month, 03:00 Asia/Shanghai)
+`cron: 0 3 1 * *` (1st of month, adjust time and timezone as needed)
 
 Archives session log files older than 7 days from `memory/` root to `memory/archive/YYYY-MM/`. Enforces the rolling log retention policy.
 
-#### Provider Quota Alert
-`every: 6h`
+→ [`cron/monthly-cleanup.json`](cron/monthly-cleanup.json)
 
-Sends a brief ping to each configured model provider. Reports failures and checks memory for quota tracking. Catches provider outages before they affect active sessions.
-
-### Sample cron configuration
+### OpenClaw cron configuration
 
 ```json5
-// openclaw.json — cron section
+// openclaw.json
 {
   "cron": {
     "enabled": true,
@@ -207,29 +197,21 @@ Sends a brief ping to each configured model provider. Reports failures and check
 }
 ```
 
-Add jobs via CLI:
-
 ```bash
-# Weekly memory consolidation (Sunday 08:00)
+# Add a job — see cron/ folder for full message prompts
 openclaw cron add \
   --name "Dream Cycle (Memory Consolidation)" \
   --cron "0 8 * * 0" \
-  --tz "Asia/Shanghai" \
+  --tz "Your/Timezone" \
   --session isolated \
-  --message "Run memory consolidation: scan memory/ root for dated session logs, summarize each to ≤30 lines, archive originals to memory/archive/YYYY-MM/, deduplicate patterns/." \
-  --announce
-
-# Monthly cleanup (1st of month, 03:00)
-openclaw cron add \
-  --name "Monthly Session Cleanup" \
-  --cron "0 3 1 * *" \
-  --tz "Asia/Shanghai" \
-  --session isolated \
-  --message "Archive memory/ root session logs older than 7 days to memory/archive/YYYY-MM/." \
+  --message "Run memory consolidation: scan memory/ root for dated session logs, refine each to ≤30 lines, archive originals to memory/archive/YYYY-MM/, deduplicate patterns/." \
   --announce
 
 # View all scheduled jobs
 openclaw cron list
+
+# Manual test run
+openclaw cron run <jobId> --force
 ```
 
 ---

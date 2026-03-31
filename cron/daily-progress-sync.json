@@ -1,0 +1,18 @@
+{
+  "name": "Daily Progress Sync",
+  "description": "Sync project progress from calendar events to Blackboard project cards.",
+  "schedule": {
+    "kind": "cron",
+    "expr": "0 4 * * *",
+    "tz": "Asia/Shanghai"
+  },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "Read blackboard/REGISTRY.md and yesterday's calendar events. Update Blackboard project cards with any progress changes. Ensure project state is current."
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "last"
+  }
+}

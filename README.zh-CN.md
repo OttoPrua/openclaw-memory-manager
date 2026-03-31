@@ -160,45 +160,35 @@ Agent 读 MEMORY.md（L0）      ← 永远从这里开始；~30 行，极快
 
 通过一组定时后台任务保持记忆健康。这些任务以隔离的 OpenClaw cron session 运行，不污染主聊天上下文。
 
+参考配置在 [`cron/`](cron/) 目录中 — 每个 `.json` 文件可直接配合 CLI 使用，或作为工具调用模板。
+
 ### 记忆相关 Cron 任务
 
 #### Dream Cycle — 每周记忆整合
-`cron: 0 8 * * 0`（周日 08:00 Asia/Shanghai）
+`cron: 0 8 * * 0`（每周，按需调整时区）
 
 扫描 `memory/` 根目录的日期格式 session 日志，将每个文件精炼为 ≤30 行结构化摘要，将原文件移入 `memory/archive/YYYY-MM/`，并对 `patterns/` 去重。保持工作记忆目录简洁。
 
-```json5
-{
-  "name": "Dream Cycle (Memory Consolidation)",
-  "schedule": { "kind": "cron", "expr": "0 8 * * 0", "tz": "Asia/Shanghai" },
-  "sessionTarget": "isolated",
-  "payload": {
-    "kind": "agentTurn",
-    "message": "执行记忆整合：扫描 memory/ 根目录日期格式 session 日志，精炼为 ≤30 行结构化摘要，归档原文件至 memory/archive/YYYY-MM/，对 patterns/ 去重。"
-  },
-  "delivery": { "mode": "announce", "channel": "last" }
-}
-```
+→ [`cron/dream-cycle.json`](cron/dream-cycle.json)
 
 #### 每日进度同步
-`cron: 0 4 * * *`（04:00 Asia/Shanghai）
+`cron: 0 4 * * *`（每日，按需调整时间和时区）
 
 读取 `blackboard/REGISTRY.md` 和昨日日历事件，同步项目进度到 Blackboard 项目卡。即使在安静的一天之后也保持项目状态最新。
 
+→ [`cron/daily-progress-sync.json`](cron/daily-progress-sync.json)
+
 #### 每月 Session 清理
-`cron: 0 3 1 * *`（每月 1 日 03:00 Asia/Shanghai）
+`cron: 0 3 1 * *`（每月 1 日，按需调整时间和时区）
 
 将 `memory/` 根目录超过 7 天的 session 日志归档到 `memory/archive/YYYY-MM/`。执行滚动日志保留策略。
 
-#### Provider 配额告警
-`every: 6h`
+→ [`cron/monthly-cleanup.json`](cron/monthly-cleanup.json)
 
-向每个已配置的模型 provider 发送简短 ping。报告失败并检查 memory 中的配额追踪。在提供商故障影响活跃 session 之前捕获问题。
-
-### Cron 配置示例
+### OpenClaw Cron 配置
 
 ```json5
-// openclaw.json — cron 部分
+// openclaw.json
 {
   "cron": {
     "enabled": true,
@@ -207,29 +197,21 @@ Agent 读 MEMORY.md（L0）      ← 永远从这里开始；~30 行，极快
 }
 ```
 
-通过 CLI 添加任务：
-
 ```bash
-# 每周记忆整合（周日 08:00）
+# 添加任务 — 完整 message prompt 见 cron/ 目录
 openclaw cron add \
   --name "Dream Cycle (Memory Consolidation)" \
   --cron "0 8 * * 0" \
-  --tz "Asia/Shanghai" \
+  --tz "Your/Timezone" \
   --session isolated \
-  --message "执行记忆整合：扫描 memory/ 根目录日期格式 session 日志，精炼为 ≤30 行结构化摘要，归档原文件。" \
-  --announce
-
-# 每月清理（每月 1 日 03:00）
-openclaw cron add \
-  --name "Monthly Session Cleanup" \
-  --cron "0 3 1 * *" \
-  --tz "Asia/Shanghai" \
-  --session isolated \
-  --message "将 memory/ 根目录超过 7 天的 session 日志归档到 memory/archive/YYYY-MM/。" \
+  --message "执行记忆整合：扫描 memory/ 根目录日期格式 session 日志，精炼为 ≤30 行，归档至 memory/archive/YYYY-MM/，对 patterns/ 去重。" \
   --announce
 
 # 查看所有计划任务
 openclaw cron list
+
+# 手动测试运行
+openclaw cron run <jobId> --force
 ```
 
 ---
