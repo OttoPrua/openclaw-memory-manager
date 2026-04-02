@@ -25,6 +25,8 @@
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
+> 🤖 **Deploy with OpenClaw:** Tell your agent — *"Run the DEPLOY.md guide"* — and it will walk through installation interactively. → [DEPLOY.md](DEPLOY.md)
+
 [OpenClaw](https://github.com/openclaw/openclaw) agents accumulate context across many sessions. Without a system, memory fragments: facts drift out of sync across files, decisions vanish after context compaction, and agents waste tokens reading everything to find one thing. This repository describes a complete architecture that solves all three problems.
 
 **It covers:**

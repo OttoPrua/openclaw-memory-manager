@@ -25,6 +25,8 @@
   <img src="https://img.shields.io/badge/许可证-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
+> 🤖 **让 OpenClaw 自动部署：** 告诉你的 agent — *「按照 DEPLOY.md 帮我部署」* — 它会交互式逐步完成安装。→ [DEPLOY.md](DEPLOY.md)
+
 [OpenClaw](https://github.com/openclaw/openclaw) agent 在多个 session 中积累上下文。没有系统时，记忆会以可预期的方式崩溃：事实在多个文件中不同步漂移，决策在上下文压缩后消失，agent 浪费 token 通读所有内容只为找到一件事。本仓库描述了一套解决上述全部问题的完整架构。
 
 **涵盖内容：**
